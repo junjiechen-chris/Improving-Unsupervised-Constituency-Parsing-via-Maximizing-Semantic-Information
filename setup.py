@@ -18,7 +18,7 @@ setup(
         "transformers==4.48",
         "lightning==2.4.0",
         "nltk",
-        "PyStemmer==2.2.0",
+        "PyStemmer",
         "spacy",
         "prettytable",
         "tensorboard",
