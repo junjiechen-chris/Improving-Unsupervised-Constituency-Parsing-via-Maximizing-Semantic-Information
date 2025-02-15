@@ -1,5 +1,5 @@
 import torch
-from parser.pcfgs.fn import stripe, diagonal_copy_, diagonal
+from parsing_by_maxseminfo.parser.pcfgs.fn import stripe, diagonal_copy_, diagonal
 
 
 class PCFG_base:

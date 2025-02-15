@@ -1,6 +1,6 @@
 from sympy import beta
-from parser.pcfgs.pcfgs import PCFG_base
-from parser.pcfgs.fn import (
+from parsing_by_maxseminfo.parser.pcfgs.pcfgs import PCFG_base
+from parsing_by_maxseminfo.parser.pcfgs.fn import (
     stripe,
     diagonal_copy_,
     diagonal,

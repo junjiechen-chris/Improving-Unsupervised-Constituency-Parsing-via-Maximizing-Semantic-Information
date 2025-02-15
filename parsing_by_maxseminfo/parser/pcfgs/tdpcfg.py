@@ -1,13 +1,13 @@
 import pdb
-from parser.pcfgs.pcfgs import PCFG_base
-from parser.pcfgs.fn import (
+from parsing_by_maxseminfo.parser.pcfgs.pcfgs import PCFG_base
+from parsing_by_maxseminfo.parser.pcfgs.fn import (
     checkpoint_nonreentrant,
     stripe,
     diagonal_copy_,
     checkpoint,
     diagonal,
 )
-from parser.triton.fn import _log_then_diagonal_copy_, _merge
+from parsing_by_maxseminfo.parser.triton.fn import _log_then_diagonal_copy_, _merge
 import torch
 
 

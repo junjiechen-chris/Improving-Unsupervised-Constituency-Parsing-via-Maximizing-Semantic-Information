@@ -223,7 +223,7 @@ class NeuralPCFGOT(NeuralPCFGPairwise):
       raise NotImplementedError("This class serves only as a base class")
     
 
-from parser.model.N_PCFG import NeuralPCFGPairwise, NeuralPCFGOT
+from parsing_by_maxseminfo.parser.model.N_PCFG import NeuralPCFGPairwise, NeuralPCFGOT
 class NeuralPCFGFixedCostReward(NeuralPCFGOT):
     @torch.enable_grad()
     def loss(

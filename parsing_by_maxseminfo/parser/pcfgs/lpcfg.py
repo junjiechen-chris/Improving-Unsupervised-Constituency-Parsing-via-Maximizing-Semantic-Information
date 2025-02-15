@@ -1,5 +1,5 @@
 import torch
-from parser.pcfgs.pcfgs import PCFG_base
+from parsing_by_maxseminfo.parser.pcfgs.pcfgs import PCFG_base
 from torch.utils.checkpoint import checkpoint as ckp
 
 '''

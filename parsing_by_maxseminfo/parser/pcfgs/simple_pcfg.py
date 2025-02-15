@@ -10,8 +10,8 @@ from itertools import repeat
 
 from sympy import beta
 
-from parser.pcfgs.pcfgs import PCFG_base
-from parser.pcfgs.fn import (
+from parsing_by_maxseminfo.parser.pcfgs.pcfgs import PCFG_base
+from parsing_by_maxseminfo.parser.pcfgs.fn import (
     checkpoint_nonreentrant,
     stripe,
     diagonal_copy_,
@@ -20,7 +20,7 @@ from parser.pcfgs.fn import (
     stripe_add_,
 )
 import torch
-from parser.triton.fn import _merge, _log_then_diagonal_copy_
+from parsing_by_maxseminfo.parser.triton.fn import _merge, _log_then_diagonal_copy_
 
 
 import pdb

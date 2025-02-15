@@ -1,11 +1,11 @@
 from ast import Not
 import torch
 import torch.nn as nn
-from parser.modules.res import ResLayer
+from parsing_by_maxseminfo.parser.modules.res import ResLayer
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from torch.utils.checkpoint import checkpoint as ckp
 
-from parser.pcfgs.simple_pcfg import MySPCFGFaster
+from parsing_by_maxseminfo.parser.pcfgs.simple_pcfg import MySPCFGFaster
 # from parser.pcfgs.simple_pcfg import SimplePCFG_Triton_Batch
 
 

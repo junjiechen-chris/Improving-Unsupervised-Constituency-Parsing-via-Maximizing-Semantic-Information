@@ -1,9 +1,37 @@
 import torch
 import numpy as np
+import re
+from nltk import Tree
 
 from parsing_by_maxseminfo.parser.helper.utils_spanoverlap import removing_punctuations
 
 
+def factorize(tree):
+    def track(tree, i):
+        label = tree.label()
+        if len(tree) == 1 and not isinstance(tree[0], Tree):
+            return (i + 1 if label is not None else i), []
+        j, spans = i, []
+        for child in tree:
+            j, s = track(child, j)
+            spans += s
+        if label is not None and j > i:
+            spans = [[i, j, label]] + spans
+        elif j > i:
+            spans = [[i, j, "NULL"]] + spans
+        return j, spans
+
+    return track(tree, 0)[1]
+
+
+def extract_sent_from_numbered_list(raw):
+    found = re.findall("\n\[\d+\]([^\n]+)", raw)
+    return [i.strip() for i in found]
+
+
+def extract_sent_from_quote(raw):
+    found = re.findall("\<\|assistant\|\>\n?([^\n]+)(?:</s>|\n)?", raw)
+    return [i.replace("</s>", "").strip() for i in found]
 
 def compute_span_distance_mtx(form, pas):
     seq_len = len(form)
@@ -1202,3 +1230,52 @@ class CosineAnnealingLR(torch.optim.lr_scheduler._LRScheduler):
             + self.eta_min
             for group in self.optimizer.param_groups
         ]
+
+
+def so_accumulation(seq_array, stemmer, flag_compute_relative_frequency=False):
+    # return an array of counts where counts are the number of occurrence of this substring in the sequences.
+    count_array = []
+    seq_array = [[stemmer.stemWord(w).lower() for w in seq] for seq in seq_array]
+    # print(seq_array)
+
+    for ref in seq_array:
+        cmp_set = ["[SEP]"+"[SEP]".join(seq)+"[SEP]" for seq in seq_array if seq != ref]
+        cmp_word_set = [set(seq) for seq in seq_array if seq != ref]
+        substring_count = {}
+
+        hitmap = [[] for _ in range(len(cmp_set))]
+        for w in range(len(ref) - 1, 1, -1):
+            for i in range(len(ref) - w + 1):
+                substring = "[SEP]"+"[SEP]".join(ref[i : i + w])+"[SEP]"
+                substring_word_set = set(ref[i : i + w])
+                # print(substring)
+                count_full = 0
+                ws_count_full = 0
+                count_limited = 0
+                ws_count_limited = 0
+                for cmp_idx, (cmp, cmp_ws) in enumerate(zip(cmp_set, cmp_word_set)):
+                    hit_check = [
+                        hit[0] <= i and hit[1] >= i + w for hit in hitmap[cmp_idx]
+                    ]
+                    if substring_word_set <= cmp_ws:
+                        ws_count_full += 1
+                    if substring in cmp:
+                        count_full += 1
+                        # hitmap[cmp_idx].append((i, i + w))
+                    if any(hit_check):
+                        continue
+                    # print(substring, cmp)
+                    if substring_word_set <= cmp_ws:
+                        ws_count_limited += 1
+                    if substring in cmp:
+                        count_limited += 1
+                        hitmap[cmp_idx].append((i, i + w))
+                if count_limited > 0 or count_full > 0:
+                    if flag_compute_relative_frequency:
+                        substring_count[(i, i + w)] = (count_full, count_limited, ws_count_full, ws_count_limited)
+                    else:
+                        substring_count[(i, i + w)] = count_limited
+        substring_count[(0, len(ref))] = 1
+        count_array.append(substring_count)
+
+    return count_array

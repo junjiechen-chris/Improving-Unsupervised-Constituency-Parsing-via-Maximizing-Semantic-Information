@@ -15,6 +15,11 @@ import numpy as np
 import random
 import torch
 
+from .util import SpanScorer
+
+from tqdm import tqdm
+from Stemmer import Stemmer
+
 
 def test_span_contained(s_test, s_ref):
     return any([s_test[0] >= s[0] and s_test[-1] <= s[-1] for s in s_ref])
@@ -147,85 +152,8 @@ def clean_punct_from_trees(dst, save_field="cleaned_gold_tree"):
     dst.payload[save_field] = cleaned_gold_trees
 
 
-def clean_punct_from_spacy_trees(
-    dst, spacy_token_array, spacy_span_array, save_field="cleaned_gold_tree"
-):
-
-    gold_trees = spacy_span_array
-    pos_array = [[t[1] for t in tokens] for tokens in spacy_token_array]
-    token_idx2word_idx = [np.cumsum([p != "PUNCT" for p in pos]) for pos in pos_array]
-    cleaned_gold_trees = [
-        [
-            (
-                token_idx2word_idx[bid][s[0] - 1] if s[0] > 1 else 0,
-                token_idx2word_idx[bid][s[1] - 1],
-                s[2],
-            )
-            for s in spans
-        ]
-        for bid, spans in enumerate(gold_trees)
-    ]
-    dst.payload[save_field] = cleaned_gold_trees
-
-
-def clean_punct_from_spacy_toks(
-    dst, spacy_token_array, save_field="cleaned_word", langstr="english"
-):
-    from parser.helper.utils_spanoverlap import (
-        normalizing_string,
-        removing_punctuations,
-    )
-    from Stemmer import Stemmer
-
-    print(dst.payload.keys())
-
-    cleaned_form_array = [
-        [
-            # normalizing_string(w, stemmer)
-            w.lower()
-            for w, p, _, _ in token
-            if p != "PUNCT"
-        ]
-        for token in spacy_token_array
-    ]  # clean form of punctuations
-
-    lemma_array = [
-        [
-            # normalizing_string(w, stemmer)
-            l.lower()
-            for _, p, _, l in token
-            if p != "PUNCT"
-        ]
-        for token in spacy_token_array
-    ]  # clean form of punctuations
-
-    len_array = [len(token) for token in cleaned_form_array]
-
-    dst.payload[f"{save_field}-withnum"] = cleaned_form_array
-
-    cleaned_form_array = [
-        clean_word(form) for form in cleaned_form_array
-    ]  # clean form of numbers
-
-    dst.payload[save_field] = cleaned_form_array
-    dst.payload["trg_lemma_array"] = lemma_array
-    dst.payload["seqlen"] = len_array
-
-def clean_punct_from_pos(dst, save_field="cleaned_pos_array", langstr="english"):
-    pos_array = dst.payload["pos"]
-    cleaned_pos_array = [
-        [p for p in pos if lang_punctpos_map[dst.payload["langstr"]](p)]
-        for pos in pos_array
-    ]
-    dst.payload[save_field] = cleaned_pos_array
-
-
 def clean_punct_from_words(dst, save_field="cleaned_word", langstr="english"):
-    from parser.helper.utils_spanoverlap import (
-        normalizing_string,
-        removing_punctuations,
-    )
-    from Stemmer import Stemmer
+
 
     print(dst.payload.keys())
 
@@ -263,177 +191,35 @@ def clean_punct_from_words(dst, save_field="cleaned_word", langstr="english"):
     dst.payload['cleaned_pos_array'] = cleaned_pos_array
 
 
-def extract_spacy_tokenization_and_span(dst, langstr="english"):
-    langstr2spacystr = {
-        "english": "en_core_web_sm",
-        "german": "de_core_news_sm",
-        "french": "fr_core_news_sm",
-        "chinese": "zh_core_web_sm",
-    }
-    from Stemmer import Stemmer
-
-    print(dst.payload.keys())
-    print("loading spacy for ", langstr)
-
-    # stemmer = Stemmer(dst.payload["langstr"])
-    form_array = dst.payload["word"]
-    span_array = dst.payload["gold_tree"]
-    # pos_array = dst.payload["pos"]
-    nlp = spacy.load(langstr2spacystr[langstr])
-
-    spacy_tok_array, spacy_span_array, spacy_w2t_mapping = [], [], []
-    for form, span in zip(form_array, span_array):
-        spacy_tok, spacy_span, w2t_mapping = (
-            convert_ptb_words_and_spans_to_spacy_tokens_and_spans(form, span, nlp)
-        )
-        spacy_tok_array.append(spacy_tok)
-        spacy_span_array.append(spacy_span)
-        spacy_w2t_mapping.append(w2t_mapping)
-
-    return spacy_tok_array, spacy_span_array, spacy_w2t_mapping
-
-
-import spacy
-
-
-def sample_set_processor(sample_list, langstr):
-    from tqdm import tqdm
-
-    langstr2spacystr = {
-        "english": "en_core_web_sm",
-        "german": "de_core_news_sm",
-        "french": "fr_core_news_sm",
-        "chinese": "zh_core_web_sm",
-    }
-    print("loading spacy for ", langstr)
-    spacy_model = spacy.load(langstr2spacystr[langstr])
-
-    def replace_parentheses(words):
-        return words.replace("-lrb-", "(").replace("-rrb-", ")")
-
-    out = [
-        [
-            [
-                (token.text, token.lemma_.lower())
-                for token in spacy_model(replace_parentheses(sample))
-                if token.pos_ != "PUNCT"
-            ]
-            for sample in sample_set
-        ]
-        for sample_set in tqdm(sample_list)
-    ]
-    # print(out[0])
-    return out
-
-
-# class SpacyTokenizer
-
-
-def clean_and_split_pas_samples_spacy(
-    dst,
-    save_field="tokenized_pas_samples",
-    langstr="english",
-    pas_subsample_count=10000,
-    distinct_prompt=False,
-):
-    from parser.helper.utils_spanoverlap import (
-        normalizing_string,
-        removing_punctuations,
-    )
-    from tqdm import tqdm
-    import multiprocessing
-    from functools import partial
-
-    assert dst.payload["langstr"] in [
-        "english",
-        "german",
-        "french",
-        "chinese",
-    ], f"only {dst.payload['langstr']} is implemented currently"
-    samples = dst.payload["pas_sample"]
-    prompt_keys = dst.payload["pas_prompt_key"]
-
-    # exclude the tense_gd_en_ew prompt
-    samples = [
-        [
-            sample
-            for sample, prompt_key in zip(sample_set, prompt_set)
-            if prompt_key != "tense_gd_en_ew"
-        ]
-        for sample_set, prompt_set in zip(samples, prompt_keys)
-    ]
-
-    if distinct_prompt:
-        samples = [list(set(sst)) for sst in samples]
-
-    for sample_set in samples:
-        random.shuffle(sample_set)
-    samples = [sample_set[:pas_subsample_count] for sample_set in samples]
-
-    # with multiprocessing.Manager() as manager:
-
-    # print(shared_spacy_model)
-
-    sample_set_processor_map = partial(sample_set_processor, langstr=langstr)
-
-    num_workers = 16
-    chunk_size = int(len(samples) / num_workers) + 1
-    split_samples = [
-        samples[i * chunk_size : (i + 1) * chunk_size] for i in range(num_workers)
-    ]
-    with multiprocessing.Pool(num_workers) as p:
-        cleaned_samples = p.map(sample_set_processor_map, split_samples)
-    cleaned_samples_pack = [
-        i for worker_output in cleaned_samples for i in worker_output
-    ]
-
-    dst.payload[f"{save_field}-withnum"] = cleaned_samples_pack
-
-    cleaned_samples = [
-        [clean_word([w[0] for w in words]) for words in sample_set]
-        for sample_set in cleaned_samples_pack
-    ]
-    # print(cleaned_samples_pack[0])
-
-    # for sample_set in cleaned_samples_pack:
-    #     for words in sample_set:
-    #         assert len(words) == 2, f"words: {words}"
-    lemma_array = [
-        [[w[1] for w in words] for words in sample_set]
-        for sample_set in cleaned_samples_pack
-    ]
-
-    cleaned_samples_concat = list(itertools.chain(*cleaned_samples))
-
-    dst.payload[save_field] = cleaned_samples
-    dst.payload["pas_lemma_array"] = lemma_array
-    dst.payload["flatten_pas_sample"] = cleaned_samples_concat
 
 
 def clean_and_split_pas_samples(dst, save_field="tokenized_pas_samples"):
-    from parser.helper.utils_spanoverlap import (
+    from parsing_by_maxseminfo.parser.helper.utils_spanoverlap import (
         normalizing_string,
         removing_punctuations,
     )
-    from Stemmer import Stemmer
+    # from Stemmer import Stemmer
     from nltk import word_tokenize
     import itertools
 
     print("doing for ", dst.payload["langstr"])
     # assert dst.payload["langstr"] == "english", "only english is implemented currently"
-    if dst.payload["langstr"] == 'chinese':
-        stemmer = IdentityStemmer()
-    else:
-        stemmer = Stemmer(dst.payload["langstr"])
+    # if dst.payload["langstr"] == 'chinese':
+    #     stemmer = IdentityStemmer()
+    # else:
+    #     stemmer = Stemmer(dst.payload["langstr"])
     samples = dst.payload["pas_sample"]
 
     if dst.payload["langstr"] == "chinese":
         word_tokenize = lambda x, language: [w for w in x]
     def wrapped_word_tokenzie(sent, language):
+        # print(sent)
+        # word_tokenize(sent, language)
         try:
             return word_tokenize(sent, language)
         except:
             print(f"ERROR!: {sent}")
+            # input()
             return ""
 
     cleaned_samples = [
@@ -445,7 +231,7 @@ def clean_and_split_pas_samples(dst, save_field="tokenized_pas_samples"):
             )
             for i in sample_set
         ]
-        for sample_set in samples
+        for sample_set in tqdm(samples)
     ]
     cleaned_samples = [
         [[removing_punctuations(w).strip() for w in i] for i in sample_set]
@@ -467,39 +253,6 @@ def clean_and_split_pas_samples(dst, save_field="tokenized_pas_samples"):
     dst.payload[save_field] = cleaned_samples
     dst.payload["flatten_pas_sample"] = cleaned_samples_concat
 
-
-def convert_discontinuous_w2t_mapping_to_continuous(w2t_mapping):
-    cum_list = np.cumsum([len(g) for g in w2t_mapping])
-    new_w2t_mapping = [
-        [cum_list[i - 1] + j if i > 0 else j for j in range(len(g))]
-        for i, g in enumerate(w2t_mapping)
-    ]
-    return new_w2t_mapping
-
-
-def clean_punct_from_w2tmappings(
-    dst, w2t_mapping, spacy_token_array, save_field="cleaned_w2t_mapping"
-):
-    # print(spacy_token_array[0])
-    w2t_mapping = [
-        [
-            [
-                idx for idx in g if spacy_token_array[mid][idx][1] != "PUNCT"
-            ]  # remove the end of sentence & punctuation
-            for g in mapping[:-1]
-        ]
-        for mid, mapping in enumerate(w2t_mapping)
-    ]
-    w2t_mapping = [[g for g in mapping if len(g) > 0] for mapping in w2t_mapping]
-    w2t_mapping = [
-        convert_discontinuous_w2t_mapping_to_continuous(mapping)
-        for mapping in w2t_mapping
-    ]
-    w2t_mapping = [
-        mapping + [[mapping[-1][-1] + 1]] if len(mapping) > 0 else mapping
-        for mapping in w2t_mapping
-    ]  # add the end of the sentence
-    dst.payload[save_field] = w2t_mapping
 
 
 class IdentityStemmer:
@@ -551,23 +304,14 @@ class DataModuleForPASCtrlPCFG(DataModule):
         if not self.use_cache:
             self.word_vocab = MyVocab(unk_cutoff=2, max_size=self.max_size)
 
-            has_ood = hasattr(data, "test_ood_file")
-            print("Current dataset contains OOD data:", has_ood)
             train_data = pickle.load(open(data.train_file, "rb"))
             test_data = pickle.load(open(data.test_file, "rb"))
             val_data = pickle.load(open(data.val_file, "rb"))
-            if has_ood:
-                test_ood_data = pickle.load(open(data.test_ood_file, "rb"))
-            # print(val_data["pas_sample"][:10])
             self.train_dataset = PASCtrlPCFGDataset.from_pickle(
                 train_data, self.langstr
             )
             self.val_dataset = PASCtrlPCFGDataset.from_pickle(val_data, self.langstr)
             self.test_dataset = PASCtrlPCFGDataset.from_pickle(test_data, self.langstr)
-            if has_ood:
-                self.test_ood_dataset = PASCtrlPCFGDataset.from_pickle(
-                    test_ood_data, self.langstr
-                )
 
             if not self.flag_use_spacy_for_treebank:
                 # using the treebank tokenization
@@ -578,10 +322,6 @@ class DataModuleForPASCtrlPCFG(DataModule):
                 clean_punct_from_words(
                     self.test_dataset, save_field="cleaned_word_form"
                 )
-                if has_ood:
-                    clean_punct_from_words(
-                        self.test_ood_dataset, save_field="cleaned_word_form"
-                    )
 
                 print("finished corpus punct normalization")
 
@@ -592,111 +332,12 @@ class DataModuleForPASCtrlPCFG(DataModule):
                 clean_punct_from_trees(
                     self.test_dataset, save_field="cleaned_gold_tree"
                 )
-                if has_ood:
-                    clean_punct_from_trees(
-                        self.test_ood_dataset, save_field="cleaned_gold_tree"
-                    )
                 print("finished gold tree punct normalization")
             else:
-                train_toks, train_spans, train_w2t = (
-                    extract_spacy_tokenization_and_span(
-                        self.train_dataset, langstr=self.langstr
-                    )
-                )
-                val_toks, val_spans, val_w2t = extract_spacy_tokenization_and_span(
-                    self.val_dataset, langstr=self.langstr
-                )
-                test_toks, test_spans, test_w2t = extract_spacy_tokenization_and_span(
-                    self.test_dataset, langstr=self.langstr
-                )
-                if has_ood:
-                    test_ood_toks, test_ood_spans, test_ood_w2t = (
-                        extract_spacy_tokenization_and_span(
-                            self.test_ood_dataset, langstr=self.langstr
-                        )
-                    )
-
-                clean_punct_from_w2tmappings(self.train_dataset, train_w2t, train_toks)
-                clean_punct_from_w2tmappings(self.val_dataset, val_w2t, val_toks)
-                clean_punct_from_w2tmappings(self.test_dataset, test_w2t, test_toks)
-                if has_ood:
-                    clean_punct_from_w2tmappings(
-                        self.test_ood_dataset, test_ood_w2t, test_ood_toks
-                    )
-
-                clean_punct_from_spacy_toks(
-                    self.train_dataset, train_toks, save_field="cleaned_word_form"
-                )
-                clean_punct_from_spacy_toks(
-                    self.val_dataset, val_toks, save_field="cleaned_word_form"
-                )
-                clean_punct_from_spacy_toks(
-                    self.test_dataset, test_toks, save_field="cleaned_word_form"
-                )
-                if has_ood:
-                    clean_punct_from_spacy_toks(
-                        self.test_ood_dataset,
-                        test_ood_toks,
-                        save_field="cleaned_word_form",
-                    )
-
-                clean_punct_from_spacy_trees(
-                    self.train_dataset,
-                    train_toks,
-                    train_spans,
-                    save_field="cleaned_gold_tree",
-                )
-                clean_punct_from_spacy_trees(
-                    self.val_dataset,
-                    val_toks,
-                    val_spans,
-                    save_field="cleaned_gold_tree",
-                )
-                clean_punct_from_spacy_trees(
-                    self.test_dataset,
-                    test_toks,
-                    test_spans,
-                    save_field="cleaned_gold_tree",
-                )
-                if has_ood:
-                    clean_punct_from_spacy_trees(
-                        self.test_ood_dataset,
-                        test_ood_toks,
-                        test_ood_spans,
-                        save_field="cleaned_gold_tree",
-                    )
-                print("finished corpus punct normalization for words and trees")
+                raise NotImplementedError("spacy mode not allowed")
 
             if self.flag_use_spacy_preprocessing:
-                clean_and_split_pas_samples_spacy(
-                    self.train_dataset,
-                    save_field="cleaned_pas_sample",
-                    langstr=self.langstr,
-                    pas_subsample_count=self.pas_subsample,
-                    distinct_prompt=self.distinct_prompt,
-                )
-                clean_and_split_pas_samples_spacy(
-                    self.val_dataset,
-                    save_field="cleaned_pas_sample",
-                    langstr=self.langstr,
-                    pas_subsample_count=self.pas_subsample,
-                    distinct_prompt=self.distinct_prompt,
-                )
-                clean_and_split_pas_samples_spacy(
-                    self.test_dataset,
-                    save_field="cleaned_pas_sample",
-                    langstr=self.langstr,
-                    distinct_prompt=self.distinct_prompt,
-                    # pas_subsample_count=self.pas_subsample
-                )
-                if has_ood:
-                    clean_and_split_pas_samples_spacy(
-                        self.test_ood_dataset,
-                        save_field="cleaned_pas_sample",
-                        langstr=self.langstr,
-                        distinct_prompt=self.distinct_prompt,
-                        # pas_subsample_count=self.pas_subsample
-                    )
+                raise NotImplementedError("spacy mode is not allowed in release code")
             else:
                 clean_and_split_pas_samples(
                     self.train_dataset, save_field="cleaned_pas_sample"
@@ -707,26 +348,18 @@ class DataModuleForPASCtrlPCFG(DataModule):
                 clean_and_split_pas_samples(
                     self.test_dataset, save_field="cleaned_pas_sample"
                 )
-                if has_ood:
-                    clean_and_split_pas_samples(
-                        self.test_ood_dataset, save_field="cleaned_pas_sample"
-                    )
 
             print("finished pas samples normalization")
 
             self.word_vocab.count(self.train_dataset.payload, field="cleaned_word_form")
             if self.flag_use_spacy_preprocessing and self.flag_use_spacy_for_treebank:
-                self.word_vocab.count(
-                    self.train_dataset.payload, field="flatten_pas_sample"
-                )
+                raise NotImplementedError("spacy mode not allowed")
             print("computing mapping")
             self.word_vocab.compute_mapping()
 
-            num_workers = 32
+            num_workers = 8
 
-            c_spacy = (
-                self.flag_use_spacy_preprocessing and self.flag_use_spacy_for_treebank
-            )
+            c_spacy = False
             self.prep_dataset_with_spanoverlap_seq(
                 self.train_dataset,
                 self.langstr,
@@ -757,7 +390,6 @@ class DataModuleForPASCtrlPCFG(DataModule):
             import pathlib
 
             data_path = pathlib.Path(data.train_file).parent.resolve()
-            has_ood = hasattr(data, "test_ood_file")
 
             subsample_str = (
                 f".ss{self.pas_subsample}" if self.pas_subsample < 10000 else ""
@@ -772,122 +404,22 @@ class DataModuleForPASCtrlPCFG(DataModule):
             self.val_dataset = pickle.load(
                 open(f"{data.val_file}.processed{subsample_str}", "rb")
             )
-            if has_ood:
-                self.test_ood_dataset = pickle.load(
-                    open(f"{data.test_ood_file}.processed{subsample_str}", "rb")
-                )
             self.word_vocab = pickle.load(open(f"{data_path}/vocab.pkl", "rb"))
 
             if self.flag_use_pos_unks:
-                assert self.langstr == "german", "only german is allowed to use pos unks"
-                # pos_set = set(sum(self.train_dataset.payload["pos"], []))
-                posset = set([w.split('##')[0].split('-')[0] for s in self.train_dataset.payload["pos"] for w in s])
-                pos_unk = [f'<UNK-{w}>' for w in posset]
-                self.word_vocab.idx2word.extend(pos_unk)
-                word_vocab_size = self.word_vocab.vocab_size
-                self.word_vocab.word2idx.update({w: i+word_vocab_size for i, w in enumerate(pos_unk)})
-                self.word_vocab.vocab_size = len(self.word_vocab.idx2word)
-                for idx, w in enumerate(self.word_vocab.idx2word):
-                    if w == '<ILLEGAL>': continue
-                    backmap_idx = self.word_vocab.word2idx[w]
-                    assert idx == backmap_idx, f"{idx} != {backmap_idx}, {w}"
-
-                clean_punct_from_pos(self.train_dataset)
-                clean_punct_from_pos(self.val_dataset)
-                clean_punct_from_pos(self.test_dataset)
-
-
-
+                raise NotImplementedError("POS MODE is disabled")
 
 
         if self.merge_pas_data:
+            raise NotImplementedError("merging of pas data is not allowed")
             self.merge_pas_original(self.train_dataset)
         # self.word_vocab.index_dataset()
-
-    @staticmethod
-    def f_worker(word_forms, pas_samples, langstr, match_character_only=False):
-        from tqdm import tqdm
-        from Stemmer import Stemmer
-
-        scorer = SpanScorer()
-        if langstr == "chinese":
-            stemmer = IdentityStemmer()
-        else:
-            stemmer = Stemmer(langstr)
-        spanoverlap_score_array = []
-        hit_counts_array = []
-        for trg, trg_pas in tqdm(zip(word_forms, pas_samples)):
-            scores = np.zeros((len(trg) + 1, len(trg) + 1))
-            hit_counts = []
-            for sample in trg_pas:
-                hitscore = scorer.score_by_longest_matches(
-                    trg,
-                    sample,
-                    stemmer,
-                    flag_print=False,
-                    match_character_only=match_character_only,
-                )
-                hits = hitscore.nonzero()
-                hit_counts.append(len(hits[0]))
-                for i, j, l, r in zip(hits[0], hits[1], hits[2], hits[3]):
-                    scores[i, j] += 1
-            spanoverlap_score_array.append(scores / len(trg_pas))
-            hit_counts_array.append(hit_counts)
-        return spanoverlap_score_array, hit_counts_array
-
-    @staticmethod
-    def prep_dataset_with_spanoverlap_score(
-        dst, langstr, match_character_only=False, workers=14, pas_subsample_count=None
-    ):
-        import multiprocessing
-        from itertools import repeat
-
-        assert pas_subsample_count is not None, "pas_subsample_count must be specified"
-
-        # from tqdm import tqdm
-
-        pas_samples = dst.payload["pas_lemma_array"]
-        word_forms = dst.payload["trg_lemma_array"]
-
-        pas_samples = [
-            random.sample(pas, k=min(pas_subsample_count, len(pas)))
-            for pas in pas_samples
-        ]
-
-        chunk_size = int(len(word_forms) / workers) + 2
-        chunked_word_forms = [
-            word_forms[i * chunk_size : (i + 1) * chunk_size] for i in range(workers)
-        ]
-        chunked_pas_samples = [
-            pas_samples[i * chunk_size : (i + 1) * chunk_size] for i in range(workers)
-        ]
-        print(f"do multiprocessing spanoverlap computation with {workers} workers")
-        spanoverlap_score_array = []
-        hit_counts_array = []
-        with multiprocessing.Pool(workers) as p:
-            outputs = p.starmap(
-                DataModuleForPASCtrlPCFG.f_worker,
-                zip(
-                    chunked_word_forms,
-                    chunked_pas_samples,
-                    repeat(langstr),
-                    repeat(match_character_only),
-                ),
-            )
-        for output in outputs:
-            spanoverlap_score_array.extend(output[0])
-            hit_counts_array.extend(output[1])
-        # spanoverlap_score_array = sum(spanoverlap_score_array, [])
-        # spanoverlap_score_array, hit_counts_array = zip(*spanoverlap_score_array)
-
-        dst.payload["spanoverlap_score"] = spanoverlap_score_array
-        dst.payload["pas_hit_counts"] = hit_counts_array
 
     @staticmethod
     def f_worker_soseq(
         word_forms, pas_samples, langstr, flag_compute_relative_frequency
     ):
-        from ipynb.utils import so_accumulation
+        from parsing_by_maxseminfo.utils.utils import so_accumulation
         from tqdm import tqdm
         from Stemmer import Stemmer
 
@@ -915,7 +447,9 @@ class DataModuleForPASCtrlPCFG(DataModule):
     def f_worker_soseq_tbtok(
         word_forms, pas_samples, langstr, flag_compute_relative_frequency, ref_word_forms
     ):
-        from ipynb.utils import so_accumulation_tbtok
+        # from ipynb.utils import so_accumulation_tbtok
+        # from parsing_by_maxseminfo.utils import so_accumulation_tbtok
+        from parsing_by_maxseminfo.utils.utils import so_accumulation_tbtok
         from tqdm import tqdm
         from Stemmer import Stemmer
 
@@ -950,7 +484,7 @@ class DataModuleForPASCtrlPCFG(DataModule):
     def prep_dataset_with_spanoverlap_seq(
         dst,
         langstr,
-        workers=32,
+        workers=8,
         pas_subsample_count=None,
         flag_compute_relative_frequency=False,
         flag_use_spacy_preprocessing=False,
@@ -1019,15 +553,6 @@ class DataModuleForPASCtrlPCFG(DataModule):
         dst.payload["trg_spanoverlap_score"] = trg_spanoverlap_score_array
         dst.payload["pas_spanoverlap_score"] = pas_spanoverlap_score_array
 
-    @staticmethod
-    def merge_pas_original(dst):
-        orig = dst.payload["cleaned_word_form"]
-        pas = dst.payload["cleaned_pas_sample"]
-        merged = list(itertools.chain(*(pas + [orig])))
-        merged_len = [len(i) for i in merged]
-        dst.payload["cleaned_word_form"] = merged
-        dst.payload["seqlen"] = merged_len
-
     def save_processed(self, subsample):
         import pathlib
 
@@ -1062,28 +587,7 @@ class DataModuleForPASCtrlPCFG(DataModule):
         pair_pas_with_target=False,
         pas_subsample_count=10000,
     ):
-        args = self.hparams.test
-        val_dataset = self.val_dataset.drop(
-            lambda x: x > max_len or x < min_len, payload_label="seqlen"
-        )
-        val_sampler = ByLengthSampler(
-            dataset=val_dataset, batch_size=args.batch_size, seq_len_label="seqlen"
-        )
-
-        params = {
-            "payload": val_dataset.payload,
-            "sampler": val_sampler,
-            "device": device,
-            "mode": "eval",
-            "word_vocab": self.word_vocab,
-            "use_simlen_pasdata": flag_use_simlen_pas_data,
-            "max_pasdata_lendiff": max_pasdata_lendiff,
-            "resample_target_data": False,
-            "pair_pas_with_target": pair_pas_with_target,
-            "pas_subsample_count": pas_subsample_count,
-        }
-        it = PASCtrlPCFGIter(langstr=langstr, prompt_type=prompt_type, **params)
-        return it
+        raise NotImplementedError()
 
     def train_dataloader(
         self,
@@ -1099,32 +603,7 @@ class DataModuleForPASCtrlPCFG(DataModule):
         supervised_mode=False,
         pas_subsample_count=10000,
     ):
-
-        args = self.hparams.train
-        dst = self.train_dataset.drop(
-            lambda x: x > max_len or x < min_len, payload_label="seqlen"
-        )
-        sampler = ByLengthSampler(
-            dataset=dst, batch_size=args.batch_size, seq_len_label="seqlen"
-        )
-
-        params = {
-            "payload": dst.payload,
-            "sampler": sampler,
-            "device": device,
-            "mode": "trai",
-            "word_vocab": self.word_vocab,
-            "use_simlen_pasdata": flag_use_simlen_pas_data,
-            "max_pasdata_lendiff": max_pasdata_lendiff,
-            "resample_target_data": resample_target_data,
-            "pair_pas_with_target": pair_pas_with_target,
-            "return_supervised_mask": supervised_mode,
-            "pas_subsample_count": pas_subsample_count,
-        }
-        it = PASCtrlPCFGIter(
-            langstr=langstr, prompt_type=prompt_type, return_trees=False, **params
-        )
-        return it
+        raise NotImplementedError()
 
 
 class PCFGIter(MyDataIter):
