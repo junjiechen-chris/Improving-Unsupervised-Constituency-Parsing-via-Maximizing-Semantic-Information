@@ -1,4 +1,4 @@
-This is a preliminary code release for **Improving Unsupervised Constituency Parsing via Maximizing Semantic Information**. 
+This is a preliminary code release for [Improving Unsupervised Constituency Parsing via Maximizing Semantic Information](https://openreview.net/forum?id=qyU5s4fzLg&noteId=qyU5s4fzLg) (Spotlight @ ICLR25).  
 
 The training and evaluation can be run using [this colab notebook](https://drive.google.com/file/d/1RYPwPp8aEJ7-gjgyxJRVYUKEZWP1JbOW/view?usp=sharing)
 
