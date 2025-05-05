@@ -708,7 +708,7 @@ class PCFGRewardIter(MyDataIter):
         self.return_gold_tree = return_gold_tree
         print("Train Iter: add_sentence_level_span", self.add_sentence_level_span)
         # print("Train Iter: mode_offending_spans", self.mode_offending_spans)
-        if self.bert_mode:
+        if self.bert_mode and self.bert_mode != "disabled":
             from transformers import AutoTokenizer
 
             self.tokenizer = AutoTokenizer.from_pretrained(
