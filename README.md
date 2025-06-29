@@ -2,7 +2,7 @@ This is a preliminary code release for [Improving Unsupervised Constituency Pars
 
 The training and evaluation can be run using [this colab notebook](https://drive.google.com/file/d/1RYPwPp8aEJ7-gjgyxJRVYUKEZWP1JbOW/view?usp=sharing)
 
-More details in this [slide deck](ICLR-Slide.pdf)
+More details in this [slide deck](https://s3.g.s4.mega.io/aczeau2wd2mrkhulcbykdz5ujnqvr2zinc7jm/homepage-assets/ICLR-Slide.pdf)
 
 ----
 ## How to run the code
