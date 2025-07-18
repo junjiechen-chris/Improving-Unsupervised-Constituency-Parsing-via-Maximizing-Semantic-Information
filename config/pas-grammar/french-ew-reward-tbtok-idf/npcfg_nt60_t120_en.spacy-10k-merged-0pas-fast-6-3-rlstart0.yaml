@@ -1,0 +1,78 @@
+device: 0
+save_dir : 'log'
+
+data:
+  train_file: 'data/french/spmrl_fr-full.gd_instruction.batch.gpt4omini-ew-reward-tbtok-idf/train.pickle'
+  # train_file: 'data/english/ptb_en-full.gd_instruction.batch.gpt4omini/val.pickle'
+  val_file: 'data/french/spmrl_fr-full.gd_instruction.batch.gpt4omini-ew-reward-tbtok-idf/val.pickle'
+  test_file: 'data/french/spmrl_fr-full.gd_instruction.batch.gpt4omini-ew-reward-tbtok-idf/test.pickle'
+  vocab_type: 'max_size'
+  vocab_size: 10000
+  min_freq: 2
+
+
+model:
+  model_name: 'NPCFG-FixedCostReward'
+  NT: 60 
+  T: 120
+  s_dim: 512 
+  use_fast_pcfg: True
+  use_bn: False
+
+experimental:
+  alignment_coefficient: 1.
+  adversarial_coefficient: 0.
+
+  pas_subsample_count: 0
+  renormalizing_marginals: False 
+
+  weigh_nll_loss: True 
+  suppress_pas_contrib: False
+
+  flag_curriculum_learning: False 
+
+  mode: "rl"
+  hit_count_threshold: 2
+  activation_flood: 0.001
+
+  mode_offending_spans: True
+  spancomp_loss_weight: 4.
+  rl_warmup_steps: 5000
+  rl_start_step: 0 
+  rl_initial_coeff: 0.
+  rl_target_coeff: 1.
+  rl_len_norm: False
+  apply_mean_baseline: True
+
+  maxent_initial_coeff: -0.01
+  maxent_target_coeff: -0.01
+  mode_reward: 'none'
+  
+
+
+train:
+  batch_size: 4
+  max_epoch: 10
+  max_len: 40
+  #whether to use curriculum learning stragegy.
+  curriculum: 0
+  start_len: 30
+  increment: 1
+  patience: 5
+  clip: 3
+
+
+test:
+  batch_size: 2
+  max_tokens: 100
+  bucket: 32
+  decode: 'mbr'
+  sampler: 'batch'
+
+optimizer:
+  name: 'adam'
+  lr: 0.001
+  mu: 0.75
+  nu: 0.999
+  # weight_decay: 0.0001
+
